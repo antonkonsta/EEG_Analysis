@@ -32,7 +32,7 @@ from utils.channel_utils import load_channel_map, apply_channel_mapping
 from utils.signal_analysis import calculate_dc_drift, calculate_alpha_band_snr, calculate_ac_pk_to_pk, apply_signal_filtering
 from utils.saturation_analysis import count_saturated_channels_any_point
 from utils.plotting_utils import plot_time_domain, plot_fft, plot_fft_high_accuracy
-from utils.data_processing import setup_output_folders, move_source_csv, validate_csv_file, get_output_filename, interactive_channel_mapping_selection, interactive_folder_selection, interactive_threshold_selection, interactive_filter_selection, open_pdf_file
+from utils.data_processing import setup_output_folders, move_source_csv, validate_csv_file, get_output_filename, interactive_channel_mapping_selection, interactive_folder_selection, interactive_threshold_selection, interactive_filter_selection, open_pdf_file, clear_screen
 from scipy.signal import detrend
 
 def generate_eeg_report(csv_file, output_pdf=None, use_channel_mapping=True, low_thresh=0.053, high_thresh=3.247, percent=0.0, low_amplitude_thresh=0.5, channel_mapping_file=None, custom_folder=None, filter_config=None):
@@ -1625,6 +1625,8 @@ def interactive_file_selection():
     Returns:
         str: Path to selected CSV file, or None if cancelled
     """
+    clear_screen()
+    
     current_dir = os.getcwd()
     print(f"\nScanning for CSV files in: {current_dir}")
     

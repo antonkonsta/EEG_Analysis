@@ -8,6 +8,17 @@ and data preparation.
 import json
 import subprocess
 import platform
+import os
+
+
+def clear_screen():
+    """
+    Clear the terminal screen for a cleaner interface.
+    """
+    if platform.system() == 'Windows':
+        os.system('cls')
+    else:
+        os.system('clear')
 
 
 def open_pdf_file(pdf_path):
@@ -124,6 +135,8 @@ def interactive_filter_selection():
     Returns:
         dict: Dictionary containing selected filter configuration
     """
+    clear_screen()
+    
     # Load saved preferences or defaults
     current_prefs = load_filter_preferences()
     
@@ -396,6 +409,8 @@ def interactive_threshold_selection():
     Returns:
         dict: Dictionary containing selected threshold values
     """
+    clear_screen()
+    
     # Load saved preferences or defaults
     current_prefs = load_threshold_preferences()
     
@@ -593,6 +608,8 @@ def interactive_channel_mapping_selection():
     Returns:
         str: Path to selected channel mapping file, or None if cancelled/not found
     """
+    clear_screen()
+    
     # Find the channel_mappings folder
     script_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = script_dir
@@ -686,6 +703,8 @@ def interactive_folder_selection():
     Returns:
         str: Path to the selected folder, or None if cancelled
     """
+    clear_screen()
+    
     # Find the reports directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = script_dir
@@ -840,6 +859,8 @@ def get_output_filename(csv_file, provided_filename=None):
     # If filename was provided via command line, use it
     if provided_filename:
         return provided_filename
+    
+    clear_screen()
     
     print(f"\nProcessing: {os.path.basename(csv_file)}")
     print(f"Default output name: {default_filename}")
