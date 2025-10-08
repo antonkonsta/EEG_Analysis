@@ -14,6 +14,18 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 from typing import List, Optional, Dict, Any
 
+# Fix encoding issues on Windows
+if os.name == 'nt':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    # Try to enable UTF-8 mode on Windows console
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.SetConsoleOutputCP(65001)  # UTF-8
+    except:
+        pass
+
 try:
     import colorama
     from colorama import Fore, Back, Style, init
@@ -114,6 +126,45 @@ class DashboardUI:
         self.config = AnalysisConfig()
         self.presets_dir = os.path.join(os.path.dirname(__file__), '..', 'presets')
         os.makedirs(self.presets_dir, exist_ok=True)
+        # More compact width as requested
+        self.dashboard_width = 76  # Total width including borders
+        self.content_width = self.dashboard_width - 4  # Account for "║ " and " ║" = 4 chars
+        
+        # Test if Unicode box drawing characters work
+        self.use_unicode = self._test_unicode_support()
+        
+        # Box drawing characters
+        if self.use_unicode:
+            self.h_line = '═'
+            self.v_line = '║'
+            self.top_left = '╔'
+            self.top_right = '╗'
+            self.bottom_left = '╚'
+            self.bottom_right = '╝'
+            self.cross = '╣'
+            self.cross_left = '╠'
+            self.sep_line = '─'
+        else:
+            # ASCII fallback
+            self.h_line = '='
+            self.v_line = '|'
+            self.top_left = '+'
+            self.top_right = '+'
+            self.bottom_left = '+'
+            self.bottom_right = '+'
+            self.cross = '+'
+            self.cross_left = '+'
+            self.sep_line = '-'
+    
+    def _test_unicode_support(self) -> bool:
+        """Test if the terminal supports Unicode box drawing characters"""
+        try:
+            # Try to encode Unicode box drawing characters
+            test_chars = '╔═╗║╚╝'
+            test_chars.encode(sys.stdout.encoding or 'utf-8')
+            return True
+        except (UnicodeEncodeError, AttributeError):
+            return False
     
     def clear_screen(self):
         """Clear terminal screen (cross-platform)"""
@@ -127,37 +178,108 @@ class DashboardUI:
         except:
             return 80  # Fallback
     
+    def strip_ansi_codes(self, text: str) -> str:
+        """Remove ANSI color codes from text for accurate length measurement"""
+        import re
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        return ansi_escape.sub('', text)
+    
+    def get_visual_width(self, text: str) -> int:
+        """Get the visual width of text as it appears in the terminal"""
+        # Remove ANSI codes first
+        clean_text = self.strip_ansi_codes(text)
+        
+        # Simple approach - no emoji complications
+        return len(clean_text)
+    
+    def format_line_exact(self, left_content: str, right_content: str = "", left_colored: str = None) -> str:
+        """Format a line with exact alignment using visual width calculation"""
+        # Use colored version for display if provided
+        display_left = left_colored if left_colored else left_content
+        
+        # Calculate visual widths using clean text
+        left_width = self.get_visual_width(left_content)
+        right_width = self.get_visual_width(right_content)
+        
+        # Total content that will be visible
+        total_content_width = left_width + right_width
+        
+        # DEBUG: Print debug info for troubleshooting
+        debug = False  # Set to True for debugging
+        if debug:
+            print(f"DEBUG: left='{left_content}' (w={left_width}), right='{right_content}' (w={right_width}), total={total_content_width}, content_width={self.content_width}")
+        
+        # Calculate exact padding needed
+        if total_content_width >= self.content_width:
+            # Content too long - truncate left side
+            max_left = max(0, self.content_width - right_width - 3)  # 3 for "..."
+            if max_left > 0:
+                truncated_left = left_content[:max_left] + "..."
+                display_left = truncated_left
+            else:
+                display_left = "..."
+            padding_spaces = 0
+        else:
+            padding_spaces = self.content_width - total_content_width
+        
+        # Build the final line with exact spacing
+        # Format: "║ {left_content}{padding}{right_content} ║"
+        result = f"{self.v_line} {display_left}{' ' * padding_spaces}{right_content} {self.v_line}"
+        
+        # Verify length (for debugging)
+        if debug:
+            actual_length = len(self.strip_ansi_codes(result))
+            expected_length = self.dashboard_width
+            print(f"DEBUG: result length={actual_length}, expected={expected_length}")
+        
+        return result
+    
     def print_header(self):
         """Print the dashboard header"""
-        width = min(self.get_terminal_width(), 100)
         title = "EEG ANALYSIS DASHBOARD"
         
-        print(f"{Fore.CYAN}{Style.BRIGHT}╔{'═' * (width - 2)}╗")
-        print(f"║{title.center(width - 2)}║")
-        print(f"╠{'═' * (width - 2)}╣{Style.RESET_ALL}")
+        # Use content_width + 2 for the horizontal lines to match content sections
+        header_line_width = self.content_width + 2
+        
+        print(f"{Fore.CYAN}{Style.BRIGHT}{self.top_left}{self.h_line * header_line_width}{self.top_right}")
+        
+        # Format title line using same logic as content
+        title_padding = (self.content_width - len(title)) // 2
+        remaining_padding = self.content_width - len(title) - title_padding
+        print(f"{self.v_line} {' ' * title_padding}{title}{' ' * remaining_padding} {self.v_line}")
+        
+        print(f"{self.cross_left}{self.h_line * header_line_width}{self.cross}{Style.RESET_ALL}")
     
     def print_footer(self):
         """Print the dashboard footer"""
-        width = min(self.get_terminal_width(), 100)
-        print(f"{Fore.CYAN}╚{'═' * (width - 2)}╝{Style.RESET_ALL}")
+        footer_line_width = self.content_width + 2
+        print(f"{Fore.CYAN}{self.bottom_left}{self.h_line * footer_line_width}{self.bottom_right}{Style.RESET_ALL}")
     
     def print_files_section(self):
         """Print the files section"""
         file_summary = self.config.get_file_summary()
-        is_valid, _ = self.config.is_valid()
         
         status_color = Fore.GREEN if self.config.files else Fore.YELLOW
-        status_icon = "✓" if self.config.files else "⚠"
+        status_icon = "OK" if self.config.files else "!"
         
-        print(f"║ {status_color}{status_icon} FILES: {file_summary:<50} [F] Change ║{Style.RESET_ALL}")
+        # Build the content with exact alignment
+        left_content = f"{status_icon} FILES: {file_summary}"
+        left_colored = f"{status_color}{status_icon} FILES: {file_summary}{Style.RESET_ALL}"
+        right_content = "[F] Change"
+        
+        print(self.format_line_exact(left_content, right_content, left_colored))
     
     def print_config_section(self):
         """Print the configuration overview section"""
-        print(f"║ {Fore.WHITE}{Style.BRIGHT}CONFIGURATION OVERVIEW:{' ' * 52}║{Style.RESET_ALL}")
+        # Section header
+        header_content = "CONFIGURATION OVERVIEW:"
+        colored_header = f"{Fore.WHITE}{Style.BRIGHT}{header_content}{Style.RESET_ALL}"
+        print(self.format_line_exact(header_content, "", colored_header))
         
         # Output folder
         folder_display = self.config.output_folder if self.config.output_folder != "default" else "Default location"
-        print(f"║   📁 Output Folder: {folder_display:<35} [1] Change ║")
+        folder_content = f"  Output Folder: {folder_display}"
+        print(self.format_line_exact(folder_content, "[1] Change"))
         
         # Channel mapping
         if self.config.use_channel_mapping and self.config.channel_mapping_file:
@@ -171,19 +293,32 @@ class DashboardUI:
             mapping_display = "Disabled"
             mapping_color = Fore.YELLOW
         
-        print(f"║   🗺️  Channel Mapping: {mapping_color}{mapping_display:<30}{Style.RESET_ALL} [2] Change ║")
+        mapping_content = f"  Channel Mapping: {mapping_display}"
+        mapping_colored = f"  Channel Mapping: {mapping_color}{mapping_display}{Style.RESET_ALL}"
+        print(self.format_line_exact(mapping_content, "[2] Change", mapping_colored))
         
         # Signal filtering
+        filter_display = str(self.config.filtering)
         filter_color = Fore.GREEN if self.config.filtering.enabled else Fore.YELLOW
-        print(f"║   ⚡ Signal Filtering: {filter_color}{str(self.config.filtering):<30}{Style.RESET_ALL} [3] Change ║")
+        filter_content = f"  Signal Filtering: {filter_display}"
+        filter_colored = f"  Signal Filtering: {filter_color}{filter_display}{Style.RESET_ALL}"
+        print(self.format_line_exact(filter_content, "[3] Change", filter_colored))
         
         # Thresholds
-        print(f"║   📊 Thresholds: {Fore.GREEN}{str(self.config.thresholds):<35}{Style.RESET_ALL} [4] Change ║")
+        threshold_display = str(self.config.thresholds)
+        threshold_content = f"  Thresholds: {threshold_display}"
+        threshold_colored = f"  Thresholds: {Fore.GREEN}{threshold_display}{Style.RESET_ALL}"
+        print(self.format_line_exact(threshold_content, "[4] Change", threshold_colored))
     
     def print_actions_section(self):
         """Print the quick actions section"""
-        print(f"║ {' ' * 76} ║")
-        print(f"║ {Fore.WHITE}{Style.BRIGHT}QUICK ACTIONS:{' ' * 61}║{Style.RESET_ALL}")
+        # Empty line
+        print(self.format_line_exact("", ""))
+        
+        # Section header
+        header_content = "QUICK ACTIONS:"
+        colored_header = f"{Fore.WHITE}{Style.BRIGHT}{header_content}{Style.RESET_ALL}"
+        print(self.format_line_exact(header_content, "", colored_header))
         
         # Check if ready to run
         is_valid, errors = self.config.is_valid()
@@ -194,31 +329,54 @@ class DashboardUI:
             run_color = Fore.RED
             run_text = "[R] Run (Fix errors first)"
         
-        print(f"║   [F] Files    {run_color}{run_text:<20}{Style.RESET_ALL} [D] Load Defaults ║")
-        print(f"║   [S] Save Preset      [L] Load Preset         [Q] Quit      ║")
+        # First action line
+        action1_plain = f"  [F] Files    {run_text} [D] Load Defaults"
+        action1_colored = f"  [F] Files    {run_color}{run_text}{Style.RESET_ALL} [D] Load Defaults"
+        print(self.format_line_exact(action1_plain, "", action1_colored))
+        
+        # Second action line
+        action2_content = "  [S] Save Preset      [L] Load Preset         [Q] Quit"
+        print(self.format_line_exact(action2_content, ""))
     
     def print_status_section(self):
         """Print validation status and warnings"""
         is_valid, errors = self.config.is_valid()
         
+        # Empty line
+        print(self.format_line_exact("", ""))
+        
         if errors:
-            print(f"║ {' ' * 76} ║")
-            print(f"║ {Fore.RED}{Style.BRIGHT}⚠ ISSUES TO FIX:{' ' * 59}║{Style.RESET_ALL}")
+            # Issues header
+            header_content = "! ISSUES TO FIX:"
+            colored_header = f"{Fore.RED}{Style.BRIGHT}{header_content}{Style.RESET_ALL}"
+            print(self.format_line_exact(header_content, "", colored_header))
+            
+            # Show errors
             for error in errors[:3]:  # Show max 3 errors
-                print(f"║   {Fore.RED}• {error:<70}{Style.RESET_ALL} ║")
+                error_content = f"  • {error}"
+                colored_error = f"  {Fore.RED}• {error}{Style.RESET_ALL}"
+                print(self.format_line_exact(error_content, "", colored_error))
         else:
-            print(f"║ {Fore.GREEN}✓ Configuration ready - all settings validated{' ' * 27}║{Style.RESET_ALL}")
+            success_content = "OK Configuration ready - all settings validated"
+            colored_success = f"{Fore.GREEN}{success_content}{Style.RESET_ALL}"
+            print(self.format_line_exact(success_content, "", colored_success))
+    
+    def print_separator(self):
+        """Print a separator line"""
+        # Ensure separator line matches content format exactly
+        separator_content = self.sep_line * self.content_width
+        print(f"{self.v_line} {separator_content} {self.v_line}")
     
     def display_dashboard(self):
         """Display the complete dashboard"""
         self.clear_screen()
         self.print_header()
         self.print_files_section()
-        print(f"║ {'─' * 76} ║")
+        self.print_separator()
         self.print_config_section()
-        print(f"║ {'─' * 76} ║")
+        self.print_separator()
         self.print_actions_section()
-        print(f"║ {'─' * 76} ║")
+        self.print_separator()
         self.print_status_section()
         self.print_footer()
     
@@ -317,15 +475,15 @@ def test_dashboard():
     
     # Add some test data
     dashboard.config.files = [
-        "/path/to/anthonyDRL300k_2.csv",
-        "/path/to/hollemanDRL200k_3.csv"
+        "anthonyDRL300k_2.csv",
+        "hollemanDRL200k_3.csv"
     ]
     dashboard.config.filtering.enabled = True
     
-    print("Testing dashboard display...")
+    print("Testing improved dashboard alignment...")
     dashboard.display_dashboard()
-    print(f"\n{Fore.GREEN}Dashboard test completed successfully!{Style.RESET_ALL}")
-    print("This was just a display test. Integration with main script pending.")
+    print(f"\n{Fore.GREEN}Dashboard alignment test completed!{Style.RESET_ALL}")
+    print("Check if all the right borders (║) are properly aligned.")
 
 
 if __name__ == "__main__":
