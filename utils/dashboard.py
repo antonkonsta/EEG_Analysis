@@ -78,6 +78,7 @@ class AnalysisConfig:
     use_channel_mapping: bool = True
     filtering: FilterConfig = None
     thresholds: ThresholdConfig = None
+    current_preset: Optional[str] = None  # Track the currently loaded preset
     
     def __post_init__(self):
         if self.files is None:
@@ -132,6 +133,9 @@ class DashboardUI:
         
         # Test if Unicode box drawing characters work
         self.use_unicode = self._test_unicode_support()
+        
+        # Auto-load the last used preset
+        self.auto_load_last_preset()
         
         # Box drawing characters
         if self.use_unicode:
@@ -276,8 +280,20 @@ class DashboardUI:
         colored_header = f"{Fore.WHITE}{Style.BRIGHT}{header_content}{Style.RESET_ALL}"
         print(self.format_line_exact(header_content, "", colored_header))
         
+        # Current preset display
+        if self.config.current_preset:
+            preset_content = f"  Current Preset: {self.config.current_preset}"
+            preset_colored = f"  Current Preset: {Fore.CYAN}{self.config.current_preset}{Style.RESET_ALL}"
+        else:
+            preset_content = "  Current Preset: None (Default Settings)"
+            preset_colored = f"  Current Preset: {Fore.YELLOW}None (Default Settings){Style.RESET_ALL}"
+        print(self.format_line_exact(preset_content, "", preset_colored))
+        
         # Output folder
-        folder_display = self.config.output_folder if self.config.output_folder != "default" else "Default location"
+        if self.config.output_folder == "default":
+            folder_display = "Default (Generated from Date)"
+        else:
+            folder_display = os.path.basename(self.config.output_folder)
         folder_content = f"  Output Folder: {folder_display}"
         print(self.format_line_exact(folder_content, "[1] Change"))
         
@@ -337,6 +353,10 @@ class DashboardUI:
         # Second action line
         action2_content = "  [S] Save Preset      [L] Load Preset         [Q] Quit"
         print(self.format_line_exact(action2_content, ""))
+        
+        # Third action line - Preset management
+        action3_content = "  [X] Delete Preset    [M] Rename Preset"
+        print(self.format_line_exact(action3_content, ""))
     
     def print_status_section(self):
         """Print validation status and warnings"""
@@ -382,11 +402,11 @@ class DashboardUI:
     
     def get_user_choice(self) -> str:
         """Get user input with validation"""
-        valid_choices = ['1', '2', '3', '4', 'f', 'r', 'd', 's', 'l', 'q']
+        valid_choices = ['1', '2', '3', '4', 'f', 'r', 'd', 's', 'l', 'x', 'm', 'q']
         
         while True:
             try:
-                choice = input(f"\n{Fore.CYAN}Enter choice (1-4, F, R, D, S, L, Q): {Style.RESET_ALL}").strip().lower()
+                choice = input(f"\n{Fore.CYAN}Enter choice (1-4, F, R, D, S, L, X, M, Q): {Style.RESET_ALL}").strip().lower()
                 
                 if choice in valid_choices:
                     return choice
@@ -415,6 +435,11 @@ class DashboardUI:
         try:
             with open(preset_file, 'w') as f:
                 json.dump(config_dict, f, indent=2)
+            
+            # Update current preset tracking
+            self.config.current_preset = name
+            self.save_last_preset(name)
+            
             print(f"{Fore.GREEN}Preset '{name}' saved successfully!{Style.RESET_ALL}")
         except Exception as e:
             print(f"{Fore.RED}Error saving preset: {e}{Style.RESET_ALL}")
@@ -445,6 +470,10 @@ class DashboardUI:
             threshold_data = config_dict.get('thresholds', {})
             self.config.thresholds = ThresholdConfig(**threshold_data)
             
+            # Update current preset tracking
+            self.config.current_preset = name
+            self.save_last_preset(name)
+            
             print(f"{Fore.GREEN}Preset '{name}' loaded successfully!{Style.RESET_ALL}")
             return True
             
@@ -463,9 +492,188 @@ class DashboardUI:
         except:
             return []
     
+    def save_last_preset(self, preset_name: str):
+        """Save the name of the last used preset"""
+        last_preset_file = os.path.join(self.presets_dir, '.last_preset')
+        try:
+            with open(last_preset_file, 'w') as f:
+                f.write(preset_name)
+        except Exception:
+            pass  # Silently ignore errors for this convenience feature
+    
+    def get_last_preset(self) -> Optional[str]:
+        """Get the name of the last used preset"""
+        last_preset_file = os.path.join(self.presets_dir, '.last_preset')
+        try:
+            if os.path.exists(last_preset_file):
+                with open(last_preset_file, 'r') as f:
+                    return f.read().strip()
+        except Exception:
+            pass
+        return None
+    
+    def auto_load_last_preset(self):
+        """Automatically load the last used preset if available"""
+        last_preset = self.get_last_preset()
+        if last_preset:
+            preset_file = os.path.join(self.presets_dir, f"{last_preset}.json")
+            if os.path.exists(preset_file):
+                if self.load_preset(last_preset):
+                    self.config.current_preset = last_preset
+                    return True
+        return False
+    
+    def delete_preset(self, name: str) -> bool:
+        """Delete a preset"""
+        preset_file = os.path.join(self.presets_dir, f"{name}.json")
+        
+        if not os.path.exists(preset_file):
+            print(f"{Fore.RED}Preset '{name}' not found.{Style.RESET_ALL}")
+            return False
+        
+        try:
+            os.remove(preset_file)
+            
+            # Clear current preset if it was the one deleted
+            if self.config.current_preset == name:
+                self.config.current_preset = None
+            
+            # Update last preset if it was the one deleted
+            if self.get_last_preset() == name:
+                self.save_last_preset("")  # Clear last preset
+            
+            print(f"{Fore.GREEN}Preset '{name}' deleted successfully!{Style.RESET_ALL}")
+            return True
+            
+        except Exception as e:
+            print(f"{Fore.RED}Error deleting preset: {e}{Style.RESET_ALL}")
+            return False
+    
+    def rename_preset(self, old_name: str, new_name: str) -> bool:
+        """Rename a preset"""
+        old_file = os.path.join(self.presets_dir, f"{old_name}.json")
+        new_file = os.path.join(self.presets_dir, f"{new_name}.json")
+        
+        if not os.path.exists(old_file):
+            print(f"{Fore.RED}Preset '{old_name}' not found.{Style.RESET_ALL}")
+            return False
+        
+        if os.path.exists(new_file):
+            print(f"{Fore.RED}Preset '{new_name}' already exists.{Style.RESET_ALL}")
+            return False
+        
+        try:
+            # Rename the file
+            os.rename(old_file, new_file)
+            
+            # Update current preset if it was the one renamed
+            if self.config.current_preset == old_name:
+                self.config.current_preset = new_name
+            
+            # Update last preset if it was the one renamed
+            if self.get_last_preset() == old_name:
+                self.save_last_preset(new_name)
+            
+            print(f"{Fore.GREEN}Preset renamed from '{old_name}' to '{new_name}' successfully!{Style.RESET_ALL}")
+            return True
+            
+        except Exception as e:
+            print(f"{Fore.RED}Error renaming preset: {e}{Style.RESET_ALL}")
+            return False
+    
+    def interactive_delete_preset(self):
+        """Interactive preset deletion"""
+        presets = self.list_presets()
+        if not presets:
+            print(f"{Fore.YELLOW}No presets available to delete.{Style.RESET_ALL}")
+            input("Press Enter to continue...")
+            return
+        
+        print(f"\n{Fore.CYAN}Available Presets:{Style.RESET_ALL}")
+        for i, preset in enumerate(presets, 1):
+            current_marker = " (current)" if preset == self.config.current_preset else ""
+            print(f"{i}. {preset}{current_marker}")
+        
+        try:
+            choice = input(f"\nSelect preset to delete (1-{len(presets)}) or 'c' to cancel: ").strip()
+            if choice.lower() == 'c':
+                return
+            
+            choice_num = int(choice)
+            if 1 <= choice_num <= len(presets):
+                preset_name = presets[choice_num - 1]
+                
+                # Confirmation
+                confirm = input(f"Are you sure you want to delete '{preset_name}'? (y/N): ").strip()
+                if confirm.lower() == 'y':
+                    self.delete_preset(preset_name)
+                else:
+                    print("Deletion cancelled.")
+            else:
+                print(f"Please enter a number between 1 and {len(presets)}")
+                
+        except ValueError:
+            print("Please enter a valid number or 'c' to cancel")
+        except KeyboardInterrupt:
+            print("\nCancelled.")
+        
+        input("Press Enter to continue...")
+    
+    def interactive_rename_preset(self):
+        """Interactive preset renaming"""
+        presets = self.list_presets()
+        if not presets:
+            print(f"{Fore.YELLOW}No presets available to rename.{Style.RESET_ALL}")
+            input("Press Enter to continue...")
+            return
+        
+        print(f"\n{Fore.CYAN}Available Presets:{Style.RESET_ALL}")
+        for i, preset in enumerate(presets, 1):
+            current_marker = " (current)" if preset == self.config.current_preset else ""
+            print(f"{i}. {preset}{current_marker}")
+        
+        try:
+            choice = input(f"\nSelect preset to rename (1-{len(presets)}) or 'c' to cancel: ").strip()
+            if choice.lower() == 'c':
+                return
+            
+            choice_num = int(choice)
+            if 1 <= choice_num <= len(presets):
+                old_name = presets[choice_num - 1]
+                
+                while True:
+                    new_name = input(f"Enter new name for '{old_name}': ").strip()
+                    if not new_name:
+                        print("Please enter a valid name.")
+                        continue
+                    
+                    # Clean the name
+                    new_name = "".join(c for c in new_name if c.isalnum() or c in (' ', '-', '_')).strip()
+                    if not new_name:
+                        print("Invalid name. Please use letters, numbers, spaces, hyphens, or underscores.")
+                        continue
+                    
+                    if new_name == old_name:
+                        print("New name is the same as the old name.")
+                        break
+                    
+                    if self.rename_preset(old_name, new_name):
+                        break
+                    # If rename failed, loop to try again
+            else:
+                print(f"Please enter a number between 1 and {len(presets)}")
+                
+        except ValueError:
+            print("Please enter a valid number or 'c' to cancel")
+        except KeyboardInterrupt:
+            print("\nCancelled.")
+        
+        input("Press Enter to continue...")
+    
     def load_defaults(self):
         """Load default configuration"""
         self.config = AnalysisConfig()
+        self.config.current_preset = None  # Clear current preset
         print(f"{Fore.GREEN}Default configuration loaded.{Style.RESET_ALL}")
 
 

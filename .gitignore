@@ -5,6 +5,7 @@
 
 # Ignore the entire reports folder and its contents
 reports/
+presets/
 
 # Ignore user preference files (contain personal settings)
 .threshold_preferences.json

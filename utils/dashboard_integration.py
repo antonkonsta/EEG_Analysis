@@ -251,6 +251,12 @@ class DashboardController:
                     print("No presets available.")
                     input("Press Enter to continue...")
             
+            elif choice == 'x':  # Delete preset
+                self.dashboard.interactive_delete_preset()
+            
+            elif choice == 'm':  # Rename preset
+                self.dashboard.interactive_rename_preset()
+            
             elif choice == 'r':  # Run analysis
                 is_valid, errors = self.dashboard.config.is_valid()
                 if is_valid:
