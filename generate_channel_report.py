@@ -32,7 +32,7 @@ from utils.channel_utils import load_channel_map, apply_channel_mapping
 from utils.signal_analysis import calculate_dc_drift, calculate_alpha_band_snr, calculate_ac_pk_to_pk, apply_signal_filtering
 from utils.saturation_analysis import count_saturated_channels_any_point
 from utils.plotting_utils import plot_time_domain, plot_fft, plot_fft_high_accuracy
-from utils.data_processing import setup_output_folders, move_source_csv, validate_csv_file, get_output_filename, interactive_channel_mapping_selection, interactive_folder_selection, interactive_threshold_selection, interactive_filter_selection, open_pdf_file, clear_screen
+from utils.data_processing import setup_output_folders, move_source_csv, validate_csv_file, get_output_filename, get_default_output_filename, interactive_channel_mapping_selection, interactive_folder_selection, interactive_threshold_selection, interactive_filter_selection, open_pdf_file, clear_screen
 from scipy.signal import detrend
 
 def generate_eeg_report(csv_file, output_pdf=None, use_channel_mapping=True, low_thresh=0.053, high_thresh=3.247, percent=0.0, low_amplitude_thresh=0.5, channel_mapping_file=None, custom_folder=None, filter_config=None):
@@ -1620,10 +1620,10 @@ def scan_for_csv_files(directory):
 
 def interactive_file_selection():
     """
-    Interactively select a CSV file from the current directory.
+    Interactively select CSV file(s) from the current directory.
     
     Returns:
-        str: Path to selected CSV file, or None if cancelled
+        list: List of paths to selected CSV files, or None if cancelled
     """
     clear_screen()
     
@@ -1651,27 +1651,66 @@ def interactive_file_selection():
         print(f"{i:2d}. {filename:<30} ({file_size_mb:.1f} MB, {mod_time_str})")
     
     print("-" * 50)
+    print("\nSelect files to process:")
+    print("• Single file: Enter number (e.g., 3)")
+    print("• Multiple files: Enter comma-separated numbers (e.g., 1,3,4)")
+    print("• All files: Enter 'all'")
+    print("• Quit: Enter 'q'")
     
     while True:
         try:
-            choice = input(f"\nSelect a file (1-{len(csv_files)}) or 'q' to quit: ").strip()
+            choice = input(f"\nSelection: ").strip()
             
             if choice.lower() == 'q':
                 print("Cancelled.")
                 return None
             
-            file_index = int(choice) - 1
+            if choice.lower() == 'all':
+                print(f"\nSelected: All {len(csv_files)} files")
+                for i, file_path in enumerate(csv_files, 1):
+                    filename = os.path.basename(file_path)
+                    print(f"  {i}. {filename}")
+                return csv_files
             
-            if 0 <= file_index < len(csv_files):
-                selected_file = csv_files[file_index]
-                filename = os.path.basename(selected_file)
-                print(f"\nSelected: {filename}")
-                return selected_file
+            # Parse comma-separated list
+            if ',' in choice:
+                try:
+                    indices = [int(x.strip()) - 1 for x in choice.split(',')]
+                    selected_files = []
+                    
+                    # Validate all indices
+                    for idx in indices:
+                        if not (0 <= idx < len(csv_files)):
+                            print(f"Invalid file number: {idx + 1}. Please enter numbers between 1 and {len(csv_files)}")
+                            break
+                    else:
+                        # All indices are valid
+                        for idx in indices:
+                            selected_files.append(csv_files[idx])
+                        
+                        print(f"\nSelected {len(selected_files)} files:")
+                        for i, file_path in enumerate(selected_files, 1):
+                            filename = os.path.basename(file_path)
+                            print(f"  {i}. {filename}")
+                        return selected_files
+                        
+                except ValueError:
+                    print("Invalid format. Use comma-separated numbers (e.g., 1,3,4)")
+                    continue
             else:
-                print(f"Please enter a number between 1 and {len(csv_files)}")
+                # Single file selection
+                file_index = int(choice) - 1
                 
+                if 0 <= file_index < len(csv_files):
+                    selected_file = csv_files[file_index]
+                    filename = os.path.basename(selected_file)
+                    print(f"\nSelected: {filename}")
+                    return [selected_file]  # Return as list for consistency
+                else:
+                    print(f"Please enter a number between 1 and {len(csv_files)}")
+                    
         except ValueError:
-            print("Please enter a valid number or 'q' to quit")
+            print("Please enter a valid number, comma-separated numbers, 'all', or 'q' to quit")
         except KeyboardInterrupt:
             print("\nCancelled.")
             return None
@@ -1683,31 +1722,35 @@ def main():
     
     parser = argparse.ArgumentParser(description='Generate EEG channel analysis report')
     parser.add_argument('csv_file', nargs='?', default=None, help='Path to the CSV file containing EEG data (optional - if not provided, interactive selection will be used)')
-    parser.add_argument('output_pdf', nargs='?', default=None, help='Output PDF filename (optional)')
     parser.add_argument('--interactive', '-i', action='store_true',
                        help='Force interactive file selection even if csv_file is provided')
     
     args = parser.parse_args()
     
-    # Determine which file to use
-    csv_file = None
+    # Determine which files to use
+    csv_files = []
     
     if args.interactive or args.csv_file is None:
         # Use interactive selection
-        csv_file = interactive_file_selection()
-        if csv_file is None:
+        selected_files = interactive_file_selection()
+        if selected_files is None:
             sys.exit(0)  # User cancelled
+        csv_files = selected_files
     else:
         # Use provided file path
-        csv_file = args.csv_file
+        csv_files = [args.csv_file]
     
-    # Convert to absolute path and normalize path separators
-    csv_file = os.path.abspath(csv_file)
+    # Convert to absolute paths and check existence
+    for i, csv_file in enumerate(csv_files):
+        csv_files[i] = os.path.abspath(csv_file)
+        if not os.path.exists(csv_files[i]):
+            print(f"Error: File '{csv_files[i]}' not found")
+            sys.exit(1)
     
-    # Check if CSV file exists
-    if not os.path.exists(csv_file):
-        print(f"Error: File '{csv_file}' not found")
-        sys.exit(1)
+    # Interactive configuration (done once for all files)
+    print(f"\n{'='*60}")
+    print(f"BATCH CONFIGURATION - Settings will apply to all {len(csv_files)} file(s)")
+    print(f"{'='*60}")
     
     # Interactive channel mapping selection
     channel_mapping_file = interactive_channel_mapping_selection()
@@ -1738,28 +1781,69 @@ def main():
         print("Filter configuration cancelled.")
         sys.exit(0)
 
-    # Get the output filename (interactive if not provided)
-    output_filename = get_output_filename(csv_file, args.output_pdf)
+    # Process each file with the same configuration
+    print(f"\n{'='*60}")
+    print(f"STARTING BATCH PROCESSING")
+    print(f"{'='*60}")
     
-    try:
-        output_pdf_path = generate_eeg_report(
-            csv_file=csv_file,
-            output_pdf=output_filename,
-            use_channel_mapping=use_channel_mapping,
-            low_thresh=threshold_config['low_thresh'],
-            high_thresh=threshold_config['high_thresh'],
-            low_amplitude_thresh=threshold_config['low_amplitude_thresh'],
-            channel_mapping_file=channel_mapping_file,
-            custom_folder=selected_folder,
-            filter_config=filter_config
-        )
-        print(f"\nPDF report successfully generated!")
+    successful_reports = []
+    failed_reports = []
+    
+    for file_idx, csv_file in enumerate(csv_files, 1):
+        filename = os.path.basename(csv_file)
+        print(f"\n{'='*20} PROCESSING FILE {file_idx}/{len(csv_files)} {'='*20}")
+        print(f"File: {filename}")
+        print(f"{'='*60}")
         
-        # Automatically open the PDF file
-        open_pdf_file(output_pdf_path)
-    except Exception as e:
-        print(f"Error generating report: {e}")
+        try:
+            # Use default naming convention (no user prompts)
+            output_filename = get_default_output_filename(csv_file)
+            
+            # Generate the report
+            output_pdf_path = generate_eeg_report(
+                csv_file=csv_file,
+                output_pdf=output_filename,
+                use_channel_mapping=use_channel_mapping,
+                low_thresh=threshold_config['low_thresh'],
+                high_thresh=threshold_config['high_thresh'],
+                low_amplitude_thresh=threshold_config['low_amplitude_thresh'],
+                channel_mapping_file=channel_mapping_file,
+                custom_folder=selected_folder,
+                filter_config=filter_config
+            )
+            
+            print(f"\n✓ PDF report successfully generated for {filename}!")
+            successful_reports.append((filename, output_pdf_path))
+            
+            # Automatically open the PDF file (same as single file behavior)
+            print(f"Opening PDF: {os.path.basename(output_pdf_path)}")
+            open_pdf_file(output_pdf_path)
+            
+        except Exception as e:
+            print(f"\n✗ Error generating report for {filename}: {e}")
+            failed_reports.append((filename, str(e)))
+            continue
+    
+    # Final summary
+    print(f"\n{'='*60}")
+    print(f"BATCH PROCESSING COMPLETE")
+    print(f"{'='*60}")
+    print(f"Successfully processed: {len(successful_reports)}/{len(csv_files)} files")
+    
+    if successful_reports:
+        print(f"\n✓ Successful reports:")
+        for filename, pdf_path in successful_reports:
+            print(f"  • {filename} → {os.path.basename(pdf_path)}")
+    
+    if failed_reports:
+        print(f"\n✗ Failed reports:")
+        for filename, error in failed_reports:
+            print(f"  • {filename}: {error}")
+    
+    if failed_reports:
         sys.exit(1)
+    else:
+        print(f"\nAll PDF reports generated and opened successfully!")
 
 if __name__ == "__main__":
     main()

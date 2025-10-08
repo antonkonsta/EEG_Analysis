@@ -842,6 +842,21 @@ def interactive_folder_selection():
             return None
 
 
+def get_default_output_filename(csv_file):
+    """
+    Generate the default output PDF filename based on the CSV filename.
+    
+    Parameters:
+        csv_file (str): Path to the CSV file being processed
+        
+    Returns:
+        str: The default output PDF filename (without path)
+    """
+    csv_base_name = os.path.splitext(os.path.basename(csv_file))[0]
+    default_filename = f"{csv_base_name}_channel_report.pdf"
+    return default_filename
+
+
 def get_output_filename(csv_file, provided_filename=None):
     """
     Interactively get the output PDF filename from user input.
