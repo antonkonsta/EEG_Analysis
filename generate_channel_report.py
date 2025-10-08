@@ -95,7 +95,7 @@ def generate_eeg_report(csv_file, output_pdf=None, use_channel_mapping=True, low
     
     # Apply signal filtering if requested
     filter_specs = {'filtered': False}
-    if filter_config and filter_config.get('apply_filtering', False):
+    if filter_config and (filter_config.get('lowpass_enabled', False) or filter_config.get('notch_enabled', False)):
         try:
             print("\nApplying signal filtering...")
             df, filter_specs = apply_signal_filtering(
@@ -103,7 +103,9 @@ def generate_eeg_report(csv_file, output_pdf=None, use_channel_mapping=True, low
                 sampling_rate=filter_config['sampling_rate'],
                 lowpass_cutoff=filter_config['lowpass_cutoff'],
                 notch_freq=filter_config['notch_freq'],
-                notch_q=filter_config['notch_q']
+                notch_q=filter_config['notch_q'],
+                lowpass_enabled=filter_config.get('lowpass_enabled', False),
+                notch_enabled=filter_config.get('notch_enabled', False)
             )
             print("Signal filtering completed successfully.")
         except Exception as e:
@@ -221,19 +223,42 @@ def generate_eeg_report(csv_file, output_pdf=None, use_channel_mapping=True, low
                     fontsize=14, weight='bold', transform=ax.transAxes, color='purple')
             y_pos -= line_height
             
-            ax.text(0.1, y_pos, f'• Low-pass Filter: {filter_specs["lowpass_cutoff"]}Hz (removes high-frequency noise)', 
-                    fontsize=11, transform=ax.transAxes)
-            y_pos -= line_height
-            ax.text(0.1, y_pos, f'• Notch Filter: {filter_specs["notch_freq"]}Hz (Q={filter_specs["notch_q"]}) - removes power line noise', 
-                    fontsize=11, transform=ax.transAxes)
-            y_pos -= line_height
+            # Show which filters were actually used
+            filters_used = []
+            if filter_specs.get('lowpass_enabled', False):
+                ax.text(0.1, y_pos, f'• Low-pass Filter: {filter_specs["lowpass_cutoff"]}Hz (removes high-frequency noise)', 
+                        fontsize=11, transform=ax.transAxes)
+                y_pos -= line_height
+                filters_used.append('Low-pass')
+            
+            if filter_specs.get('notch_enabled', False):
+                ax.text(0.1, y_pos, f'• Notch Filter: {filter_specs["notch_freq"]}Hz (Q={filter_specs["notch_q"]}) - removes power line noise', 
+                        fontsize=11, transform=ax.transAxes)
+                y_pos -= line_height
+                filters_used.append('Notch')
+            
             ax.text(0.1, y_pos, f'• Sampling Rate: {filter_specs["sampling_rate"]}Hz', 
                     fontsize=11, transform=ax.transAxes)
             y_pos -= line_height
-            ax.text(0.1, y_pos, '• Filter Type: Butterworth low-pass + IIR notch (zero-phase filtfilt)', 
+            
+            # Show filter type based on what was used
+            if len(filters_used) == 2:
+                filter_type_text = '• Filter Type: Butterworth low-pass + IIR notch (zero-phase filtfilt)'
+                purpose_text = '• Purpose: Remove power line interference and high-frequency artifacts'
+            elif 'Low-pass' in filters_used:
+                filter_type_text = '• Filter Type: Butterworth low-pass (zero-phase filtfilt)'
+                purpose_text = '• Purpose: Remove high-frequency artifacts'
+            elif 'Notch' in filters_used:
+                filter_type_text = '• Filter Type: IIR notch (zero-phase filtfilt)'
+                purpose_text = '• Purpose: Remove power line interference'
+            else:
+                filter_type_text = '• Filter Type: None (error in configuration)'
+                purpose_text = '• Purpose: No filtering applied'
+            
+            ax.text(0.1, y_pos, filter_type_text, 
                     fontsize=11, transform=ax.transAxes)
             y_pos -= line_height
-            ax.text(0.1, y_pos, '• Purpose: Remove power line interference and high-frequency artifacts', 
+            ax.text(0.1, y_pos, purpose_text, 
                     fontsize=11, transform=ax.transAxes, style='italic')
             y_pos -= section_spacing
             section_num = 3
@@ -1760,7 +1785,8 @@ def main():
             
             # Convert filter config
             filter_config = {
-                'apply_filtering': final_config.filtering.enabled,
+                'lowpass_enabled': final_config.filtering.lowpass_enabled,
+                'notch_enabled': final_config.filtering.notch_enabled,
                 'sampling_rate': final_config.filtering.sampling_rate,
                 'lowpass_cutoff': final_config.filtering.lowpass_cutoff,
                 'notch_freq': final_config.filtering.notch_freq,

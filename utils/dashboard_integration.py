@@ -10,8 +10,21 @@ import os
 import sys
 from typing import List, Optional, Tuple
 
+# Import colorama for colored output
+try:
+    from colorama import Fore, Back, Style, init
+    init()
+except ImportError:
+    # Fallback if colorama is not available
+    class Fore:
+        RED = GREEN = YELLOW = BLUE = CYAN = MAGENTA = WHITE = BLACK = RESET = ""
+    class Back:
+        RED = GREEN = YELLOW = BLUE = CYAN = MAGENTA = WHITE = BLACK = RESET = ""
+    class Style:
+        BRIGHT = DIM = NORMAL = RESET_ALL = ""
+
 # Import the dashboard system
-from .dashboard import DashboardUI, AnalysisConfig, FilterConfig, ThresholdConfig
+from utils.dashboard import DashboardUI, AnalysisConfig, FilterConfig, ThresholdConfig
 
 # Import existing functions from data_processing
 from .data_processing import (
@@ -171,11 +184,12 @@ class DashboardController:
     
     def handle_filtering(self) -> bool:
         """Handle signal filtering configuration"""
-        result = interactive_filter_selection()
+        result = self.interactive_filter_selection_v2()
         if result is not None:
             # Convert the result to our FilterConfig format
             self.dashboard.config.filtering = FilterConfig(
-                enabled=result.get('apply_filtering', False),
+                lowpass_enabled=result.get('lowpass_enabled', False),
+                notch_enabled=result.get('notch_enabled', False),
                 sampling_rate=result.get('sampling_rate', 1000.0),
                 lowpass_cutoff=result.get('lowpass_cutoff', 50.0),
                 notch_freq=result.get('notch_freq', 60.0),
@@ -183,6 +197,110 @@ class DashboardController:
             )
             return True
         return False
+    
+    def interactive_filter_selection_v2(self):
+        """Interactive filter configuration with independent controls"""
+        print(f"\n{Fore.CYAN}═══ SIGNAL FILTERING CONFIGURATION ═══{Style.RESET_ALL}")
+        
+        current_config = self.dashboard.config.filtering
+        
+        print(f"\nCurrent Configuration:")
+        print(f"  Low-pass Filter: {'ENABLED' if current_config.lowpass_enabled else 'DISABLED'}")
+        if current_config.lowpass_enabled:
+            print(f"    Cutoff: {current_config.lowpass_cutoff} Hz")
+        print(f"  Notch Filter: {'ENABLED' if current_config.notch_enabled else 'DISABLED'}")
+        if current_config.notch_enabled:
+            print(f"    Frequency: {current_config.notch_freq} Hz, Q: {current_config.notch_q}")
+        print(f"  Sampling Rate: {current_config.sampling_rate} Hz")
+        
+        print(f"\nOptions:")
+        print(f"  1. Toggle Low-pass Filter")
+        print(f"  2. Toggle Notch Filter")
+        print(f"  3. Configure Low-pass Settings (Cutoff Frequency)")
+        print(f"  4. Configure Notch Settings (Frequency & Q Factor)")
+        print(f"  5. Configure Sampling Rate")
+        print(f"  6. Apply Settings")
+        print(f"  0. Cancel")
+        
+        while True:
+            try:
+                choice = input(f"\n{Fore.CYAN}Select option (0-6): {Style.RESET_ALL}").strip()
+                
+                if choice == '0':
+                    return None
+                elif choice == '1':
+                    current_config.lowpass_enabled = not current_config.lowpass_enabled
+                    status = "ENABLED" if current_config.lowpass_enabled else "DISABLED"
+                    print(f"Low-pass filter {status}")
+                elif choice == '2':
+                    current_config.notch_enabled = not current_config.notch_enabled
+                    status = "ENABLED" if current_config.notch_enabled else "DISABLED"
+                    print(f"Notch filter {status}")
+                elif choice == '3':
+                    # Configure low-pass settings (enable filter if not already enabled)
+                    try:
+                        cutoff = float(input(f"Enter low-pass cutoff frequency (current: {current_config.lowpass_cutoff} Hz): "))
+                        if cutoff > 0:
+                            current_config.lowpass_cutoff = cutoff
+                            if not current_config.lowpass_enabled:
+                                current_config.lowpass_enabled = True
+                                print(f"Low-pass filter ENABLED and set to {cutoff} Hz")
+                            else:
+                                print(f"Low-pass filter updated to {cutoff} Hz")
+                        else:
+                            print("Please enter a positive frequency")
+                    except ValueError:
+                        print("Please enter a valid number")
+                elif choice == '4':
+                    # Configure notch settings (enable filter if not already enabled)
+                    try:
+                        freq = float(input(f"Enter notch frequency (current: {current_config.notch_freq} Hz): "))
+                        q = float(input(f"Enter quality factor (current: {current_config.notch_q}): "))
+                        if freq > 0 and q > 0:
+                            current_config.notch_freq = freq
+                            current_config.notch_q = q
+                            if not current_config.notch_enabled:
+                                current_config.notch_enabled = True
+                                print(f"Notch filter ENABLED and set to {freq} Hz, Q={q}")
+                            else:
+                                print(f"Notch filter updated to {freq} Hz, Q={q}")
+                        else:
+                            print("Please enter positive values")
+                    except ValueError:
+                        print("Please enter valid numbers")
+                elif choice == '5':
+                    try:
+                        rate = float(input(f"Enter sampling rate (current: {current_config.sampling_rate} Hz): "))
+                        if rate > 0:
+                            current_config.sampling_rate = rate
+                            print(f"Sampling rate set to {rate} Hz")
+                        else:
+                            print("Please enter a positive sampling rate")
+                    except ValueError:
+                        print("Please enter a valid number")
+                elif choice == '6':
+                    return {
+                        'lowpass_enabled': current_config.lowpass_enabled,
+                        'notch_enabled': current_config.notch_enabled,
+                        'sampling_rate': current_config.sampling_rate,
+                        'lowpass_cutoff': current_config.lowpass_cutoff,
+                        'notch_freq': current_config.notch_freq,
+                        'notch_q': current_config.notch_q
+                    }
+                else:
+                    print("Please enter a number between 0 and 6")
+                    
+                # Show updated status
+                print(f"\nUpdated Configuration:")
+                print(f"  Low-pass: {'ENABLED' if current_config.lowpass_enabled else 'DISABLED'}")
+                if current_config.lowpass_enabled:
+                    print(f"    Cutoff: {current_config.lowpass_cutoff} Hz")
+                print(f"  Notch: {'ENABLED' if current_config.notch_enabled else 'DISABLED'}")
+                if current_config.notch_enabled:
+                    print(f"    Frequency: {current_config.notch_freq} Hz, Q: {current_config.notch_q}")
+                    
+            except KeyboardInterrupt:
+                return None
     
     def handle_thresholds(self) -> bool:
         """Handle threshold configuration"""
@@ -225,10 +343,8 @@ class DashboardController:
                 self.dashboard.load_defaults()
             
             elif choice == 's':  # Save preset
-                preset_name = input("Enter preset name: ").strip()
-                if preset_name:
-                    self.dashboard.save_preset(preset_name)
-                    input("Press Enter to continue...")
+                self.dashboard.interactive_save_preset()
+                input("Press Enter to continue...")
             
             elif choice == 'l':  # Load preset
                 presets = self.dashboard.list_presets()

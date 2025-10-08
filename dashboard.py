@@ -138,9 +138,7 @@ class DashboardUI:
     
     def __init__(self):
         self.config = AnalysisConfig()
-        # Ensure presets directory is in the project root
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.presets_dir = os.path.join(project_root, 'presets')
+        self.presets_dir = os.path.join(os.path.dirname(__file__), '..', 'presets')
         os.makedirs(self.presets_dir, exist_ok=True)
         # More compact width as requested
         self.dashboard_width = 76  # Total width including borders
@@ -459,106 +457,6 @@ class DashboardUI:
         except Exception as e:
             print(f"{Fore.RED}Error saving preset: {e}{Style.RESET_ALL}")
     
-    def interactive_save_preset(self):
-        """Interactive preset saving with overwrite option"""
-        existing_presets = self.list_presets()
-        
-        print(f"\n{Fore.CYAN}═══ SAVE PRESET ═══{Style.RESET_ALL}")
-        
-        if existing_presets:
-            print(f"\nExisting presets:")
-            for i, preset in enumerate(existing_presets, 1):
-                current_marker = " (current)" if preset == self.config.current_preset else ""
-                print(f"  {i}. {preset}{current_marker}")
-            
-            print(f"\nOptions:")
-            print(f"  1. Create new preset")
-            print(f"  2. Overwrite existing preset")
-            print(f"  0. Cancel")
-            
-            while True:
-                try:
-                    choice = input(f"\n{Fore.CYAN}Select option (0-2): {Style.RESET_ALL}").strip()
-                    
-                    if choice == '0':
-                        return
-                    elif choice == '1':
-                        # Create new preset
-                        self._create_new_preset(existing_presets)
-                        return
-                    elif choice == '2':
-                        # Overwrite existing preset
-                        self._overwrite_existing_preset(existing_presets)
-                        return
-                    else:
-                        print(f"{Fore.RED}Please enter 0, 1, or 2{Style.RESET_ALL}")
-                        
-                except KeyboardInterrupt:
-                    return
-        else:
-            # No existing presets, just create new one
-            print("No existing presets found.")
-            self._create_new_preset([])
-    
-    def _create_new_preset(self, existing_presets):
-        """Create a new preset with a unique name"""
-        while True:
-            try:
-                name = input("Enter new preset name: ").strip()
-                if not name:
-                    print("Please enter a preset name.")
-                    continue
-                
-                # Clean the name
-                name = "".join(c for c in name if c.isalnum() or c in (' ', '-', '_')).strip()
-                if not name:
-                    print("Invalid name. Please use letters, numbers, spaces, hyphens, or underscores.")
-                    continue
-                
-                if name in existing_presets:
-                    print(f"Preset '{name}' already exists. Please choose a different name.")
-                    continue
-                
-                self.save_preset(name)
-                break
-                
-            except KeyboardInterrupt:
-                return
-    
-    def _overwrite_existing_preset(self, existing_presets):
-        """Overwrite an existing preset"""
-        print(f"\nSelect preset to overwrite:")
-        for i, preset in enumerate(existing_presets, 1):
-            current_marker = " (current)" if preset == self.config.current_preset else ""
-            print(f"  {i}. {preset}{current_marker}")
-        
-        while True:
-            try:
-                choice = input(f"\nSelect preset to overwrite (1-{len(existing_presets)}) or 'c' to cancel: ").strip()
-                
-                if choice.lower() == 'c':
-                    return
-                
-                choice_num = int(choice)
-                if 1 <= choice_num <= len(existing_presets):
-                    preset_name = existing_presets[choice_num - 1]
-                    
-                    # Confirm overwrite
-                    confirm = input(f"Are you sure you want to overwrite '{preset_name}'? (y/N): ").strip()
-                    if confirm.lower() == 'y':
-                        self.save_preset(preset_name)
-                        print(f"{Fore.GREEN}Preset '{preset_name}' overwritten successfully!{Style.RESET_ALL}")
-                    else:
-                        print("Overwrite cancelled.")
-                    return
-                else:
-                    print(f"Please enter a number between 1 and {len(existing_presets)}")
-                    
-            except ValueError:
-                print("Please enter a valid number or 'c' to cancel")
-            except KeyboardInterrupt:
-                return
-    
     def load_preset(self, name: str) -> bool:
         """Load a configuration preset"""
         preset_file = os.path.join(self.presets_dir, f"{name}.json")
@@ -577,21 +475,8 @@ class DashboardUI:
             self.config.channel_mapping_file = config_dict.get('channel_mapping_file')
             self.config.use_channel_mapping = config_dict.get('use_channel_mapping', True)
             
-            # Reconstruct filtering config with backward compatibility
+            # Reconstruct filtering config
             filter_data = config_dict.get('filtering', {})
-            
-            # Handle backward compatibility for old presets with 'enabled' field
-            if 'enabled' in filter_data and 'lowpass_enabled' not in filter_data:
-                # Old format - convert to new format
-                old_enabled = filter_data.pop('enabled', False)
-                if old_enabled:
-                    # If old format had filtering enabled, enable both filters
-                    filter_data['lowpass_enabled'] = True
-                    filter_data['notch_enabled'] = True
-                else:
-                    filter_data['lowpass_enabled'] = False
-                    filter_data['notch_enabled'] = False
-            
             self.config.filtering = FilterConfig(**filter_data)
             
             # Reconstruct threshold config

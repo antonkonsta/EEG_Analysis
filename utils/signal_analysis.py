@@ -51,7 +51,8 @@ def apply_notch_filter(data, notch_freq, sampling_rate, quality_factor=30):
     return filtered_data
 
 
-def apply_signal_filtering(df, sampling_rate, lowpass_cutoff=40, notch_freq=60, notch_q=30):
+def apply_signal_filtering(df, sampling_rate, lowpass_cutoff=40, notch_freq=60, notch_q=30, 
+                          lowpass_enabled=True, notch_enabled=True):
     """
     Apply complete signal filtering pipeline to EEG data.
     
@@ -61,6 +62,8 @@ def apply_signal_filtering(df, sampling_rate, lowpass_cutoff=40, notch_freq=60, 
         lowpass_cutoff (float): Low-pass filter cutoff frequency in Hz
         notch_freq (float): Notch filter frequency in Hz
         notch_q (float): Notch filter quality factor
+        lowpass_enabled (bool): Whether to apply low-pass filter
+        notch_enabled (bool): Whether to apply notch filter
         
     Returns:
         DataFrame: Filtered EEG data
@@ -71,25 +74,45 @@ def apply_signal_filtering(df, sampling_rate, lowpass_cutoff=40, notch_freq=60, 
     # Get numeric columns only (skip time column if present)
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     
+    # Build filter description
+    filter_parts = []
+    if lowpass_enabled:
+        filter_parts.append(f"Low-pass: {lowpass_cutoff} Hz")
+    if notch_enabled:
+        filter_parts.append(f"Notch: {notch_freq} Hz (Q={notch_q})")
+    
+    if not filter_parts:
+        print("No filters enabled - returning original data")
+        return filtered_df, {
+            'filtered': False,
+            'lowpass_enabled': False,
+            'notch_enabled': False
+        }
+    
     print(f"Applying signal filtering to {len(numeric_cols)} channels...")
-    print(f"  Low-pass filter: {lowpass_cutoff} Hz")
-    print(f"  Notch filter: {notch_freq} Hz (Q={notch_q})")
+    print(f"  Filters: {', '.join(filter_parts)}")
     
     for col in numeric_cols:
-        # Apply low-pass filter
-        filtered_data = apply_lowpass_filter(df[col].values, lowpass_cutoff, sampling_rate)
+        filtered_data = df[col].values.copy()
         
-        # Apply notch filter
-        filtered_data = apply_notch_filter(filtered_data, notch_freq, sampling_rate, notch_q)
+        # Apply low-pass filter if enabled
+        if lowpass_enabled:
+            filtered_data = apply_lowpass_filter(filtered_data, lowpass_cutoff, sampling_rate)
+        
+        # Apply notch filter if enabled
+        if notch_enabled:
+            filtered_data = apply_notch_filter(filtered_data, notch_freq, sampling_rate, notch_q)
         
         filtered_df[col] = filtered_data
     
     filter_specs = {
+        'filtered': True,
+        'lowpass_enabled': lowpass_enabled,
+        'notch_enabled': notch_enabled,
         'lowpass_cutoff': lowpass_cutoff,
         'notch_freq': notch_freq,
         'notch_q': notch_q,
-        'sampling_rate': sampling_rate,
-        'filtered': True
+        'sampling_rate': sampling_rate
     }
     
     return filtered_df, filter_specs
