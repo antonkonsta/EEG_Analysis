@@ -33,6 +33,7 @@ from utils.signal_analysis import calculate_dc_drift, calculate_alpha_band_snr, 
 from utils.saturation_analysis import count_saturated_channels_any_point
 from utils.plotting_utils import plot_time_domain, plot_fft, plot_fft_high_accuracy
 from utils.data_processing import setup_output_folders, move_source_csv, validate_csv_file, get_output_filename, get_default_output_filename, interactive_channel_mapping_selection, interactive_folder_selection, interactive_threshold_selection, interactive_filter_selection, open_pdf_file, clear_screen
+from utils.dashboard_integration import DashboardController
 from scipy.signal import detrend
 
 def generate_eeg_report(csv_file, output_pdf=None, use_channel_mapping=True, low_thresh=0.053, high_thresh=3.247, percent=0.0, low_amplitude_thresh=0.5, channel_mapping_file=None, custom_folder=None, filter_config=None):
@@ -1724,62 +1725,115 @@ def main():
     parser.add_argument('csv_file', nargs='?', default=None, help='Path to the CSV file containing EEG data (optional - if not provided, interactive selection will be used)')
     parser.add_argument('--interactive', '-i', action='store_true',
                        help='Force interactive file selection even if csv_file is provided')
+    parser.add_argument('--legacy', action='store_true',
+                       help='Use legacy sequential menu instead of dashboard')
     
     args = parser.parse_args()
     
-    # Determine which files to use
-    csv_files = []
+    # Use dashboard interface unless legacy mode is requested
+    if not args.legacy:
+        try:
+            # Initialize dashboard controller
+            controller = DashboardController()
+            
+            # If a file was provided via command line, use it
+            if args.csv_file and not args.interactive:
+                csv_file = os.path.abspath(args.csv_file)
+                if os.path.exists(csv_file):
+                    controller.dashboard.config.files = [csv_file]
+                else:
+                    print(f"Error: File '{csv_file}' not found")
+                    return
+            
+            # Run the dashboard interface
+            final_config = controller.run_main_dashboard()
+            
+            if final_config is None:
+                print("Analysis cancelled.")
+                return
+            
+            # Convert dashboard config to the format expected by generate_eeg_report
+            csv_files = final_config.files
+            use_channel_mapping = final_config.use_channel_mapping
+            channel_mapping_file = final_config.channel_mapping_file
+            selected_folder = final_config.output_folder
+            
+            # Convert filter config
+            filter_config = {
+                'apply_filtering': final_config.filtering.enabled,
+                'sampling_rate': final_config.filtering.sampling_rate,
+                'lowpass_cutoff': final_config.filtering.lowpass_cutoff,
+                'notch_freq': final_config.filtering.notch_freq,
+                'notch_q': final_config.filtering.notch_q
+            }
+            
+            # Convert threshold config
+            threshold_config = {
+                'low_thresh': final_config.thresholds.low_thresh,
+                'high_thresh': final_config.thresholds.high_thresh,
+                'low_amplitude_thresh': final_config.thresholds.low_amplitude_thresh
+            }
+            
+        except Exception as e:
+            print(f"Dashboard error: {e}")
+            print("Falling back to legacy interface...")
+            args.legacy = True
     
-    if args.interactive or args.csv_file is None:
-        # Use interactive selection
-        selected_files = interactive_file_selection()
-        if selected_files is None:
-            sys.exit(0)  # User cancelled
-        csv_files = selected_files
-    else:
-        # Use provided file path
-        csv_files = [args.csv_file]
-    
-    # Convert to absolute paths and check existence
-    for i, csv_file in enumerate(csv_files):
-        csv_files[i] = os.path.abspath(csv_file)
-        if not os.path.exists(csv_files[i]):
-            print(f"Error: File '{csv_files[i]}' not found")
-            sys.exit(1)
-    
-    # Interactive configuration (done once for all files)
-    print(f"\n{'='*60}")
-    print(f"BATCH CONFIGURATION - Settings will apply to all {len(csv_files)} file(s)")
-    print(f"{'='*60}")
-    
-    # Interactive channel mapping selection
-    channel_mapping_file = interactive_channel_mapping_selection()
-    if channel_mapping_file is None:
-        print("Channel mapping selection cancelled.")
-        sys.exit(0)
-    
-    # Check if user chose no channel mapping
-    use_channel_mapping = channel_mapping_file != "none"
-    if not use_channel_mapping:
-        channel_mapping_file = None
+    # Legacy sequential interface (fallback or explicitly requested)
+    if args.legacy:
+        # Determine which files to use
+        csv_files = []
+        
+        if args.interactive or args.csv_file is None:
+            # Use interactive selection
+            selected_files = interactive_file_selection()
+            if selected_files is None:
+                sys.exit(0)  # User cancelled
+            csv_files = selected_files
+        else:
+            # Use provided file path
+            csv_files = [args.csv_file]
+        
+        # Convert to absolute paths and check existence
+        for i, csv_file in enumerate(csv_files):
+            csv_files[i] = os.path.abspath(csv_file)
+            if not os.path.exists(csv_files[i]):
+                print(f"Error: File '{csv_files[i]}' not found")
+                sys.exit(1)
+        
+        # Interactive configuration (done once for all files)
+        print(f"\n{'='*60}")
+        print(f"BATCH CONFIGURATION - Settings will apply to all {len(csv_files)} file(s)")
+        print(f"{'='*60}")
+        
+        # Interactive channel mapping selection
+        channel_mapping_file = interactive_channel_mapping_selection()
+        if channel_mapping_file is None:
+            print("Channel mapping selection cancelled.")
+            sys.exit(0)
+        
+        # Check if user chose no channel mapping
+        use_channel_mapping = channel_mapping_file != "none"
+        if not use_channel_mapping:
+            channel_mapping_file = None
 
-    # Interactive folder selection
-    selected_folder = interactive_folder_selection()
-    if selected_folder is None:
-        print("Folder selection cancelled.")
-        sys.exit(0)
+        # Interactive folder selection
+        selected_folder = interactive_folder_selection()
+        if selected_folder is None:
+            print("Folder selection cancelled.")
+            sys.exit(0)
 
-    # Interactive threshold selection
-    threshold_config = interactive_threshold_selection()
-    if threshold_config is None:
-        print("Threshold configuration cancelled.")
-        sys.exit(0)
+        # Interactive threshold selection
+        threshold_config = interactive_threshold_selection()
+        if threshold_config is None:
+            print("Threshold configuration cancelled.")
+            sys.exit(0)
 
-    # Interactive filter selection
-    filter_config = interactive_filter_selection()
-    if filter_config is None:
-        print("Filter configuration cancelled.")
-        sys.exit(0)
+        # Interactive filter selection
+        filter_config = interactive_filter_selection()
+        if filter_config is None:
+            print("Filter configuration cancelled.")
+            sys.exit(0)
 
     # Process each file with the same configuration
     print(f"\n{'='*60}")
